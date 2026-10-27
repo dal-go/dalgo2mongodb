@@ -1,0 +1,26 @@
+name: Go CI
+on:
+  push:
+    branches: [main, mongo-query]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      mongodb:
+        image: mongo:8.0
+        ports: ['27017:27017']
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ping:1})'"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: go test -race -count=1 ./...
+        env:
+          MONGODB_TEST_URI: mongodb://127.0.0.1:27017/dalgo_mongo_test
+      - run: go vet ./...
