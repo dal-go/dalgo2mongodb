@@ -28,3 +28,7 @@ MONGODB_TEST_URI=mongodb://127.0.0.1:27017/dalgo_mongo_test go test -race ./...
 ```
 
 The integration test creates and drops `dalgo_mongo_test.products`. Never point it at production. CI runs it against MongoDB 8.0.
+
+## License
+
+Licensed under the [Apache License, Version 2.0](LICENSE).
