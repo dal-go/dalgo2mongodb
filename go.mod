@@ -3,24 +3,23 @@ module github.com/dal-go/dalgo2mongodb
 go 1.26.1
 
 require (
-	github.com/dal-go/dalgo v0.95.3
+	github.com/dal-go/dalgo v0.95.4
 	github.com/dal-go/record v0.1.5
-	go.mongodb.org/mongo-driver/v2 v2.4.4
+	go.mongodb.org/mongo-driver/v2 v2.9.2
 )
 
 require (
 	github.com/RoaringBitmap/roaring/v2 v2.30.0 // indirect
 	github.com/bits-and-blooms/bitset v1.24.4 // indirect
-	github.com/golang/snappy v1.0.0 // indirect
-	github.com/klauspost/compress v1.18.7 // indirect
+	github.com/klauspost/compress v1.19.2 // indirect
 	github.com/mschoch/smat v0.2.0 // indirect
 	github.com/strongo/random v0.0.3 // indirect
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
-	github.com/xdg-go/scram v1.1.2 // indirect
+	github.com/xdg-go/scram v1.2.0 // indirect
 	github.com/xdg-go/stringprep v1.0.4 // indirect
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
-	golang.org/x/crypto v0.52.0 // indirect
+	golang.org/x/crypto v0.53.0 // indirect
 	golang.org/x/sync v0.21.0 // indirect
-	golang.org/x/sys v0.45.0 // indirect
+	golang.org/x/sys v0.46.0 // indirect
 	golang.org/x/text v0.39.0 // indirect
 )
