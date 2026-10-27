@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"reflect"
 	"strings"
 	"time"
 
@@ -71,11 +72,11 @@ type readTx struct {
 
 func (t readTx) Options() dal.TransactionOptions { return t.options }
 func (d *database) Get(ctx context.Context, r record.Record) error {
-	if r.Key().Parent() != nil || !validName(r.Key().Collection()) {
+	if r.Key().Parent() != nil || !validName(r.Key().Collection()) || r.Key().ID == nil || !reflect.TypeOf(r.Key().ID).Comparable() {
 		return dal.ErrNotSupported
 	}
 	var data bson.M
-	err := d.db.Collection(r.Key().Collection()).FindOne(ctx, bson.D{{Key: "_id", Value: r.Key().ID}}).Decode(&data)
+	err := d.db.Collection(r.Key().Collection()).FindOne(ctx, bson.D{{Key: "_id", Value: bson.D{{Key: "$eq", Value: r.Key().ID}}}}).Decode(&data)
 	if errors.Is(err, mongo.ErrNoDocuments) {
 		err = dal.NewErrNotFoundByKey(r.Key(), nil)
 		r.SetError(err)

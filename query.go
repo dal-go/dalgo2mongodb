@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -27,6 +28,7 @@ type plan struct {
 	sort       bson.D
 	limit      int64
 	offset     int64
+	hideID     bool
 }
 
 func makePlan(query dal.Query) (plan, error) {
@@ -67,7 +69,7 @@ func makePlan(query dal.Query) (plan, error) {
 			}
 		}
 		if !hasID {
-			p.projection = append(p.projection, bson.E{Key: "_id", Value: 0})
+			p.hideID = true
 		}
 	}
 	for _, o := range q.OrderBy() {
@@ -179,9 +181,12 @@ func (d *database) ExecuteQueryToRecordsReader(ctx context.Context, query dal.Qu
 		if err = cursor.Decode(&data); err != nil {
 			return nil, errors.New("mongodb: document decoding failed")
 		}
-		id := fmt.Sprint(data["_id"])
-		if _, exists := data["_id"]; !exists {
-			id = fmt.Sprint(len(records))
+		id, exists := data["_id"]
+		if !exists || id == nil || !reflect.TypeOf(id).Comparable() {
+			return nil, fmt.Errorf("%w: MongoDB record IDs must be non-null comparable BSON scalar values", dal.ErrNotSupported)
+		}
+		if p.hideID {
+			delete(data, "_id")
 		}
 		records = append(records, record.NewRecordWithData(record.NewKeyWithID(p.collection, id), map[string]any(data)))
 	}

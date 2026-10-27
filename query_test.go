@@ -102,8 +102,58 @@ func TestMongoIntegration(t *testing.T) {
 	if err = db.RunReadwriteTransaction(ctx, func(context.Context, dal.ReadwriteTransaction) error { t.Fatal("write callback invoked"); return nil }); !errors.Is(err, dal.ErrNotSupported) {
 		t.Fatal(err)
 	}
+	// Preserve the BSON identity type for both projected and full rows. String
+	// coercion would lose ObjectID and numeric identity, and merge string "42"
+	// with integer 42 even though MongoDB treats these as distinct documents.
+	objectID := bson.NewObjectID()
+	_, err = coll.InsertMany(ctx, []any{bson.M{"_id": objectID, "name": "oid"}, bson.M{"_id": int32(42), "name": "numeric"}, bson.M{"_id": "42", "name": "string"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, projected := range []bool{false, true} {
+		builder := query()
+		var roundtripQuery dal.Query = builder.SelectIntoRecord(nil)
+		if projected {
+			roundtripQuery = builder.SelectColumns(dal.Column{Expression: dal.Field("name")})
+		}
+		rr, e := db.ExecuteQueryToRecordsReader(ctx, roundtripQuery)
+		if e != nil {
+			t.Fatal(e)
+		}
+		seen := map[string]any{}
+		for {
+			rec, e := rr.Next()
+			if errors.Is(e, dal.ErrNoMoreRecords) {
+				break
+			}
+			if e != nil {
+				t.Fatal(e)
+			}
+			name := rec.Data().(map[string]any)["name"].(string)
+			seen[name] = rec.Key().ID
+			loaded := record.NewRecordWithData(rec.Key(), &map[string]any{})
+			if e = db.Get(ctx, loaded); e != nil {
+				t.Fatalf("Get queried key (%T %v): %v", rec.Key().ID, rec.Key().ID, e)
+			}
+			if loaded.Data().(*map[string]any) == nil || (*loaded.Data().(*map[string]any))["name"] != name {
+				t.Fatalf("identity mismatch: %#v", loaded.Data())
+			}
+			if exists, e := db.Exists(ctx, rec.Key()); e != nil || !exists {
+				t.Fatalf("Exists queried key: %v %v", exists, e)
+			}
+			if projected {
+				if _, ok := rec.Data().(map[string]any)["_id"]; ok {
+					t.Fatal("projection leaked _id")
+				}
+			}
+		}
+		_ = rr.Close()
+		if seen["oid"] != objectID || seen["numeric"] != int32(42) || seen["string"] != "42" {
+			t.Fatalf("native IDs lost: %#v", seen)
+		}
+	}
 	count, err := coll.CountDocuments(ctx, bson.D{})
-	if err != nil || count != 3 {
+	if err != nil || count != 6 {
 		t.Fatal(count, err)
 	}
 }
