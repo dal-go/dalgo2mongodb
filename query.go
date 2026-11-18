@@ -11,6 +11,7 @@ import (
 	"github.com/dal-go/dalgo/dal"
 	"github.com/dal-go/record"
 	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
@@ -158,6 +159,9 @@ func (d *database) ExecuteQueryToRecordsReader(ctx context.Context, query dal.Qu
 	if err != nil {
 		return nil, err
 	}
+	if err := contextFailure(ctx, nil); err != nil {
+		return nil, err
+	}
 	opts := options.Find().SetLimit(p.limit).SetSkip(p.offset)
 	if len(p.projection) > 0 {
 		opts.SetProjection(p.projection)
@@ -167,19 +171,53 @@ func (d *database) ExecuteQueryToRecordsReader(ctx context.Context, query dal.Qu
 	}
 	cursor, err := d.db.Collection(p.collection).Find(ctx, p.filter, opts)
 	if err != nil {
-		return nil, errors.New("mongodb: query failed")
+		return nil, sealedReadError(ctx, err, "mongodb: query failed")
 	}
-	defer func() { _ = cursor.Close(ctx) }()
+	return collectRecords(ctx, p, bsonCursor{cursor})
+}
+
+// Minimal cursor boundary keeps driver BSON decoding intact while allowing a
+// deterministic test of cancellation during final cursor cleanup.
+type readCursor interface {
+	Next(context.Context) bool
+	Decode(any) error
+	Err() error
+	Close(context.Context) error
+	byteSize() int
+}
+
+type bsonCursor struct{ *mongo.Cursor }
+
+func (c bsonCursor) byteSize() int { return len(c.Current) }
+
+func collectRecords(ctx context.Context, p plan, cursor readCursor) (reader dal.RecordsReader, resultErr error) {
+	defer func() {
+		// A canceled caller is not replaced with background authority. Cleanup
+		// has a finite bound and the last success check follows its callbacks.
+		cleanup, cancel := context.WithTimeout(ctx, 5*time.Second)
+		_ = cursor.Close(cleanup)
+		cancel()
+		if err := contextFailure(ctx, resultErr); err != nil {
+			if reader != nil {
+				_ = reader.Close()
+				reader = nil
+			}
+			resultErr = err
+		}
+	}()
 	records := make([]record.Record, 0)
 	var bytes int
 	for cursor.Next(ctx) {
-		bytes += len(cursor.Current)
+		if err := contextFailure(ctx, nil); err != nil {
+			return nil, err
+		}
+		bytes += cursor.byteSize()
 		if bytes > 16<<20 {
 			return nil, errors.New("mongodb: query result exceeds 16 MiB")
 		}
 		var data bson.M
-		if err = cursor.Decode(&data); err != nil {
-			return nil, errors.New("mongodb: document decoding failed")
+		if err := cursor.Decode(&data); err != nil {
+			return nil, sealedReadError(ctx, err, "mongodb: document decoding failed")
 		}
 		id, exists := data["_id"]
 		if !exists || id == nil || !reflect.TypeOf(id).Comparable() {
@@ -190,8 +228,8 @@ func (d *database) ExecuteQueryToRecordsReader(ctx context.Context, query dal.Qu
 		}
 		records = append(records, record.NewRecordWithData(record.NewKeyWithID(p.collection, id), map[string]any(data)))
 	}
-	if err = cursor.Err(); err != nil {
-		return nil, errors.New("mongodb: query interrupted or failed")
+	if err := cursor.Err(); err != nil {
+		return nil, sealedReadError(ctx, err, "mongodb: query interrupted or failed")
 	}
 	return dal.NewRecordsReader(records), nil
 }

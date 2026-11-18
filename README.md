@@ -19,6 +19,23 @@ Supported queries use one root collection, top-level fields, scalar `==`, `<`, `
 
 Get, GetMulti and Exists are supported. Writes return `dal.ErrNotSupported`. Readonly callbacks are ordinary reads and do not provide snapshot isolation across calls. Cancellation and driver timeouts bound network operations; default server selection is 10 seconds and operation timeout is 30 seconds.
 
+Caller cancellation and deadlines return the standard `context.Canceled` or
+`context.DeadlineExceeded` sentinel, including wrapped driver context failures.
+The adapter never returns a driver error or `context.Cause` payload that can
+contain credentials or query data. Other driver failures keep fixed redacted
+messages. An expired/canceled operation cannot publish a newly opened handle,
+successful point-read state, a not-found success, or an empty/materialized query
+reader. The query's final check follows cursor cleanup; cursor cleanup uses the
+caller context with at most five seconds, not fresh background authority.
+
+Point-read failures set the supplied record's error state. A later successful
+read can reuse that record. Mapping into an existing mutable data target is not
+an atomic rollback contract: callers must respect the returned/record error.
+Driver-local cancellation and cursor cleanup do not establish that the server
+independently killed remote work. The existing limits do not claim a total
+multi-operation or paged-journey budget, native cursors, metadata discovery or
+callback transaction isolation.
+
 ## Tests
 
 `go test ./...` runs unit tests. Real-server tests require a disposable database URI ending in `/dalgo_mongo_test`:
@@ -27,7 +44,25 @@ Get, GetMulti and Exists are supported. Writes return `dal.ErrNotSupported`. Rea
 MONGODB_TEST_URI=mongodb://127.0.0.1:27017/dalgo_mongo_test go test -race ./...
 ```
 
-The integration test creates and drops `dalgo_mongo_test.products`. Never point it at production. CI runs it against MongoDB 8.0.
+The integration test creates and drops `dalgo_mongo_test.products`. Never point it at production. CI pins its server version in `.github/workflows/ci.yml`; the separately supplied owned VM fixture targets MongoDB 8.0.17.
+
+The context integration fixtures require a loopback URI selecting that same
+disposable database and create/drop only their uniquely named collections.
+`MONGODB_FIXTURE_ADMIN_URI` can supply the separate same-endpoint administrative
+fixture principal while `MONGODB_TEST_URI` selects a read-only principal. The
+original `TestMongoIntegration` still needs its seed/drop permissions; run it
+with the administrative fixture URI, and run the context fixtures separately
+with the read-only URI. No production account or database is inferred.
+
+The additional server-observed dispatch check runs only when the coordinator
+sets `MONGODB_OWNED_FAILPOINTS=1` and starts its owned ephemeral `mongod` with
+`enableTestCommands=1`. It uses the existing MongoDB `failCommand` and
+`waitForFailPoint` test APIs, then checks caller abort, deadline and a fresh read
+on the same handle. In MongoDB 8.0.17 these test APIs bypass authorization;
+using a fixture administrator is an ownership rule, not a provider privilege
+proof. Do not enable them on an external service. Official driver completion
+monitors also exercise late Ping/find success, and a mapping callback exercises
+late point-read cancellation and reuse without relying on timer races.
 
 ## License
 
