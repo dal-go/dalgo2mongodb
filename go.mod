@@ -3,7 +3,7 @@ module github.com/dal-go/dalgo2mongodb
 go 1.26.1
 
 require (
-	github.com/dal-go/dalgo v0.102.4
+	github.com/dal-go/dalgo v0.102.6
 	github.com/dal-go/record v0.1.5
 	go.mongodb.org/mongo-driver/v2 v2.10.0
 )
